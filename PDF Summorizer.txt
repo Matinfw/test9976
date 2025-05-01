@@ -1,0 +1,247 @@
+# @title ابزار خلاصه‌ساز و صوتی PDF (با استفاده از Google Gemini)
+
+import os
+import google.generativeai as genai
+from PyPDF2 import PdfReader
+# The following imports are specifically for Google Colab/Jupyter environments
+from IPython.display import display, Audio
+from google.colab import files, widgets
+import io
+import gtts
+import ipywidgets as widgets
+import json # Import the json library
+
+# ⚠️⚠️⚠️ SECURITY WARNING: HARDCODING CREDENTIALS IS DANGEROUS ⚠️⚠️⚠️
+# This block is included as requested but is not used to configure genai
+# in this specific script structure. It demonstrates how the JSON would look.
+SERVICE_ACCOUNT_CREDENTIALS_JSON = """
+{
+  "type": "service_account",
+  "project_id": "pdf-summrizer",
+  "private_key_id": "af08d0c7ca990c0c7bdfcdace370375ec8f1b51d",
+  "private_key": "-----BEGIN PRIVATE KEY-----\nMIIEvAIBADANBgkqhkiG9w0BAQEFAASCBKYwggSiAgEAAoIBAQCbdXa1PJJE9+/Y\nO56ayWJiqTmDqAdzzVb4aaYOJvHNZJ/R9JOg4j5iKnegtcCkHuLBYknkIKS7ICmU\n/FHDA/6yT086sfX//tUN6UYD3/3wLrqsUmk4W25pS7HNgihOzlxp1eLsOrpom39P\n3sUjzkK8ZkF/zGKmaEu3kkMBUElkDQPBDVkRwxh1ubY0k1QKdsizwzrx7ekPYcfq\nzZxXNemAjrTnloAvxRsSJdCnhduUrnQA2gddQT8Tp+WpkzwYbjiFmuaf3+6on/jb\naSb8nYAoCg4A+/bWltkjwRj7CF7MZVFhiP9JDMIdzAzzuAZ/U6G1fGyB8AvD5Nrr\nwkoWTEOJAgMBAAECggEALRxpbY8dnNDbswId9KmymJGlpGw6eWKhNaWmr52idikY\nbXsM6dctJhxPqX2EYLurrlQvuewFbLwDhEoArCilIiKI6ynh3khxw8lp5M0o6FT\nvxSM/vMdN4XlGw8FdlTQoU+VMVqbZCaXS4yH5WuBlx0PLbAYAlTqf+L7+aIcIeFm\n8PnT5rG8hRuX/d5a91FiZfToHFLZsStix53dZ27oS+bkHtNFpTKg/kB8j5nDfi+6\njIHrGBk8SBmMsqiQUxS4wCTDoj+JsYVaxr6tYAfOUZztxVnf/9IfWXv6zLo+AbU/\nG0NdlVa2wV+SLphIVmX9xzktpJGWjsho8eKH+0HcpwKBgQDUMfYlSo8wUzlds9oH\nL4oAjNfRc/UeOlMWHVW8Je++tKRRqaUnyPfIEuRR54AYupEi/+zsA5LetKPKF4uZ\nMkHqvWo59Dkm+vb/jl5t6pEPgFOEGMA4jUgQzPQLdBp78TRzw1SRLz7z3x+5qbI1\nPpdLlxMh/vPaGinmKf9PQe91QwKBgQC7jR1sS4g2QLGIK3STarok8VwYeOQHL4eX\nTdVIiJtR9vgOqyRkEqpSgeJp8cqOoS8KsTBPmZ4p+DboFb63fjDUP6N+2tgtTbUV\nwbtOdE6LMfUFVHXMD7SML5V17FwF81EbpAb1vZ32hRI/KYw/2udDFp/g3Tn6xr8c\n0E6PycpxQwKBgFqS8OQ+DRytiYELsfb7Pca6V6zZ+Djs4GZCI0RqVQlsBe+toAd5\navqFxduIG09y41yzLSgY5moVZQxwPHAp2aUfMOaH7pVK7n9q/7efNkgNmJh8ECCT\nfb1eHpV8+4kIDkGTkNdf+VkTVnFjk+PSUbY8SDhsoR3pqRTLvGTSWioNAoGAReVJ\nWdqsYMurXfwT7fyQcsQgdl5XXPYxqgmvuuBuQhWwTIcrgMAUCbuuDZ22x4D6bxmp\nz4CImUuP6t5vvSKiP/eXjucwOXIEUp9olsxxmR59Ggdn/yy7NKNnKBN2GCGd0JdI\noLyR6hWdvzxUsFd8aFw+KSdJPFRlVO+s15l0gNECgYAeiSK71+46Sqc4fV9O0j38\ntVJ057SMxNEbBV0w198h3dxmuchN73sx/hw8TIVWyyRmnyfPP6EGdFSE0FaOuG91\nLRqy+0MysOcpdDwyjlXNUR1mDq9wNTPzm3SsnmhHDcFvKHz/W6Y/3oWYlnLiiHVd\n9Al42//wohbeEqFg64Zsaw==\n-----END PRIVATE KEY-----\n"
+}
+"""
+
+# Parse the JSON string (for reference only, not used to configure genai here)
+try:
+    CREDENTIALS_DICT = json.loads(SERVICE_ACCOUNT_CREDENTIALS_JSON)
+    print("Service account JSON found in code (for reference - NOT used directly for genai.configure here).")
+except json.JSONDecodeError as e:
+    print(f"⚠️ Error parsing hardcoded service account JSON: {e}")
+    CREDENTIALS_DICT = None
+
+# --- Installation of Prerequisites ---
+print("🛠️ در حال نصب پکیج‌های مورد نیاز...")
+!pip install PyPDF2 google-generativeai gtts ipywidgets -q
+print("✅ نصب پکیج‌ها کامل شد.")
+print("-" * 30)
+
+# --- Function to list available models (Helpful for debugging) ---
+# You can run this cell separately or uncomment it if needed
+# try:
+#     # You need to set the API key first, e.g., paste it into the UI input
+#     # or replace 'YOUR_API_KEY' with your actual key if testing this part standalone.
+#     # If running after UI is displayed, you can get the key like this:
+#     # api_key_for_listing = api_key_input.value # Requires api_key_input to be defined globally or accessible
+#     # if api_key_for_listing:
+#     #     genai.configure(api_key=api_key_for_listing)
+#     #     print("\nAvailable Gemini models supporting generateContent:")
+#     #     for m in genai.list_models():
+#     #         if 'generateContent' in m.supported_generation_methods:
+#     #             print(m.name)
+#     # else:
+#     #     print("\nCannot list models: API key not provided.")
+# except Exception as e:
+#     print(f"\nError listing models: {e}")
+# print("-" * 30)
+
+
+# تابع برای استخراج متن از فایل PDF
+def extract_text_from_pdf(pdf_file):
+    """
+    Extracts text from a PDF file-like object.
+    """
+    try:
+        pdf_reader = PdfReader(pdf_file)
+        text = ""
+        for page in pdf_reader.pages:
+            page_text = page.extract_text()
+            if page_text:
+                text += page_text + "\n"
+        return text
+    except Exception as e:
+        return f"خطا در استخراج متن از PDF: {str(e)}"
+
+# تابع برای خلاصه‌سازی متن با استفاده از Gemini API
+def summarize_text(text, api_key, max_length=500):
+    """
+    Summarizes the given text using the Google Gemini API.
+    Uses the provided api_key for configuration.
+    """
+    try:
+        # Configure the generative AI library with the API key from the UI
+        genai.configure(api_key=api_key)
+
+        # Use a model name that is available and supports generateContent
+        # "gemini-1.5-flash-latest" is a common and fast model.
+        model_name = "gemini-1.5-flash-latest"
+
+        model = genai.GenerativeModel(model_name)
+
+        prompt = f"""
+        شما یک متخصص خلاصه‌سازی اسناد حرفه‌ای هستید. متن زیر را به زبان فارسی خلاصه کنید.
+        خلاصه باید حداکثر {max_length} کلمه باشد، منسجم و شامل نکات کلیدی متن باشد.
+        متن:
+        {text}
+        """
+        response = model.generate_content(prompt)
+        return response.text
+    except Exception as e:
+        return f"❌ خطا در خلاصه‌سازی متن: {str(e)}"
+
+# تابع برای تبدیل متن به صوت و ذخیره آن
+def text_to_audio(text, output_file="summary_audio.mp3"):
+    """
+    Converts text to speech using gTTS and saves it to an MP3 file.
+    Uses Arabic ('ar') as a fallback language for Persian if 'fa' is not supported.
+    """
+    try:
+        # *** FIX: Use Arabic ('ar') as a fallback for Persian ('fa') ***
+        # gTTS might not fully support 'fa'. 'ar' is often a supported alternative.
+        tts = gtts.gTTS(text, lang="ar") # Change lang to 'ar'
+        tts.save(output_file)
+
+        return output_file
+    except Exception as e:
+        # Return a more specific error message if it's a language issue
+        if "Language not supported" in str(e) or "fa" in str(e).lower():
+             return f"❌ خطا در تبدیل متن به صوت: زبان 'fa' توسط gTTS پشتیبانی نمی‌شود. لطفاً از یک زبان دیگر (مثل 'ar') استفاده کنید. پیام خطا: {str(e)}"
+        else:
+            return f"❌ خطا در تبدیل متن به صوت: {str(e)}"
+
+# ایجاد رابط کاربری تعاملی با استفاده از ipywidgets
+def create_ui():
+    """
+    Creates and displays the interactive user interface using ipywidgets.
+    """
+    # Input box for the API key (still needed for genai.configure)
+    api_key_input = widgets.Text(
+        value="",
+        placeholder="کلید API Google Gemini خود را وارد کنید",
+        description="کلید API:",
+        layout={'width': '500px'},
+        style={'description_width': 'initial'}
+    )
+
+    # File upload button, accepting only PDF files
+    upload_button = widgets.FileUpload(
+        accept=".pdf",
+        multiple=False,
+        description="آپلود فایل PDF"
+    )
+
+    # Button to start the process
+    process_button = widgets.Button(
+        description="شروع خلاصه‌سازی و تبدیل به صوت",
+        button_style="success",
+        tooltip="برای شروع فرآیند کلیک کنید",
+        icon="play"
+    )
+
+    # Output widget to display status and results
+    output = widgets.Output()
+
+    # Function to handle the button click event
+    def on_process_button_clicked(b):
+        with output:
+            output.clear_output()
+            print("در حال شروع فرآیند...")
+
+            # --- Validation ---
+            if not api_key_input.value:
+                print("⚠️ لطفاً کلید API را وارد کنید.")
+                return
+            if not upload_button.value:
+                print("⚠️ لطفاً یک فایل PDF آپلود کنید.")
+                return
+
+            # --- File Handling ---
+            try:
+                uploaded_file_info = list(upload_button.value.values())[0]
+                file_content = uploaded_file_info['content']
+                pdf_file_io = io.BytesIO(file_content)
+                print(f"✅ فایل '{uploaded_file_info['metadata']['name']}' با موفقیت آپلود شد.")
+            except Exception as e:
+                print(f"❌ خطا در دسترسی به فایل آپلود شده: {e}")
+                return
+
+            # --- Text Extraction ---
+            print("⏳ در حال استخراج متن از PDF...")
+            text = extract_text_from_pdf(pdf_file_io)
+            if "خطا" in text:
+                print(f"❌ {text}")
+                return
+            print("✅ متن با موفقیت استخراج شد.")
+
+
+            # --- Summarization ---
+            print("⏳ در حال خلاصه‌سازی متن با استفاده از Gemini...")
+            # Use the API key from the UI input
+            summary = summarize_text(text, api_key_input.value)
+            if "خطا" in summary:
+                print(f"❌ {summary}")
+                print("💡 نکات: مطمئن شوید کلید API صحیح است و به مدل دسترسی دارید.")
+                return
+            print("✅ خلاصه‌سازی با موفقیت انجام شد.")
+
+            # --- Display Summary ---
+            print("\n--- خلاصه متن ---")
+            display(widgets.Textarea(
+                value=summary,
+                description='خلاصه:',
+                disabled=True,
+                layout={'width': 'auto', 'height': '200px'}
+            ))
+            print("-----------------")
+
+
+            # --- Text-to-Audio Conversion ---
+            print("\n⏳ در حال تبدیل خلاصه به فایل صوتی...")
+            audio_file_path = text_to_audio(summary)
+            if "خطا" in audio_file_path:
+                print(f"❌ {audio_file_path}")
+                print("💡 نکات: ممکن است خلاصه‌سازی خالی یا خیلی کوتاه بوده باشد یا مشکل gTTS در تبدیل صوت باشد.")
+                return
+            print(f"✅ فایل صوتی با موفقیت ایجاد شد: '{audio_file_path}'")
+
+            # --- Display Audio Player ---
+            print("\n--- پخش فایل صوتی ---")
+            try:
+                display(Audio(audio_file_path, embed=True))
+            except Exception as e:
+                 print(f"❌ خطا در نمایش پخش‌کننده صوتی: {e}")
+
+
+            # --- Provide Download Link ---
+            print("\n--- دانلود فایل صوتی ---")
+            print(f"برای دانلود فایل '{audio_file_path}' روی لینک زیر کلیک کنید:")
+            try:
+                 files.download(audio_file_path)
+            except Exception as e:
+                 print(f"❌ خطا در ارائه لینک دانلود: {e}")
+
+
+            print("\n✨ فرآیند به پایان رسید.")
+
+
+    process_button.on_click(on_process_button_clicked)
+
+    print("💡 لطفاً کلید API Google Gemini خود را وارد کرده و فایل PDF را آپلود کنید.")
+    display(api_key_input)
+    display(upload_button)
+    display(process_button)
+    display(output)
+
+# --- Run the UI ---
+create_ui()
